@@ -1,0 +1,23 @@
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Scratch / temporary files
+tmp/
+*.log
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Course reference documents (kept local only)
+document/

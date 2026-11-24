@@ -86,6 +86,8 @@ class ReplayConsumer:
         per_type: Counter[str] = Counter()
         seq_gaps: Dict[str, list[int]] = defaultdict(list)
         last_seq: Dict[str, int] = {}
+        machine_partitions: Dict[str, set[int]] = defaultdict(set)
+        simulator_restarts: Counter[str] = Counter()
         consumed = 0
         end_offsets = self._end_offsets()
         total_available = sum(end_offsets.values())
@@ -104,13 +106,23 @@ class ReplayConsumer:
                 per_type[str(event.get("event_type", "?"))] += 1
                 consumed += 1
 
-                # Per-machine ordering check: seq must be non-decreasing per key.
+                # Key-hash check: every event for one machine must come from
+                # the same partition.
+                machine_partitions[machine_id].add(msg.partition)
+
+                # Per-machine ordering check: seq must be non-decreasing per
+                # key. The log survives simulator restarts, and a restarted
+                # simulator resets seq to 1 — that is a new session, not an
+                # ordering violation.
                 payload = event.get("payload")
                 seq = payload.get("seq") if isinstance(payload, dict) else None
                 if isinstance(seq, int):
                     prev = last_seq.get(machine_id)
                     if prev is not None and seq < prev:
-                        seq_gaps[machine_id].append(seq)
+                        if seq == 1:
+                            simulator_restarts[machine_id] += 1
+                        else:
+                            seq_gaps[machine_id].append(seq)
                     last_seq[machine_id] = seq
 
                 if self.verbose:
@@ -137,7 +149,11 @@ class ReplayConsumer:
             "replayed_records": consumed,
             "per_machine": dict(sorted(per_machine.items())),
             "per_event_type": dict(sorted(per_type.items())),
+            "simulator_restarts": dict(sorted(simulator_restarts.items())),
             "ordering_violations": {k: v for k, v in seq_gaps.items() if v},
+            "partition_violations": {
+                k: sorted(v) for k, v in machine_partitions.items() if len(v) > 1
+            },
         }
         self.consumer.close()
         return summary
@@ -177,8 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     summary = replay.run()
     print("\n=== REPLAY SUMMARY ===")
     print(json.dumps(summary, indent=2))
-    if summary["ordering_violations"]:
-        print("WARNING: per-machine ordering violations detected!")
+    if summary["ordering_violations"] or summary["partition_violations"]:
+        print("WARNING: per-machine ordering or key-partition violations detected!")
         return 2
     print("Replay OK: history readable by an independent consumer group; per-machine order preserved.")
     return 0

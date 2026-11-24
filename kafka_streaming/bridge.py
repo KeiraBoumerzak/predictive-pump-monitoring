@@ -9,11 +9,19 @@ Data flow (README architecture, arrow "Validated Telemetry & Status"):
         -> machine.audit      (consolidated append-only copy of every event)
         -> machine.audit      (quarantine events for malformed payloads)
 
+    Mosquitto (Node-RED derived events, Member 3)
+        factory/site01/machine/+/features -> machine.features
+        factory/site01/machine/+/health   -> machine.health
+        factory/site01/machine/+/alerts   -> machine.alerts
+        factory/site01/machine/+/actions  -> maintenance.actions
+        (each also copied to machine.audit)
+
 The bridge is intentionally a *separate process* from the simulator and from
 the consumers: MQTT stays the live edge link, Kafka becomes the durable,
-replayable system of record. Node-RED (Member 3) will publish its derived
-``features``/``health``/``maintenance_action`` events through the same
-``EventProducer``/envelope contract.
+replayable system of record. All Kafka producers stay in Python: Node-RED
+(Member 3) publishes its derived ``features``/``health``/``alert``/
+``maintenance_action`` events to the MQTT topics above and this bridge
+forwards them to Kafka, so no Node-RED Kafka plugin is needed.
 
 Usage:
     python -m kafka_streaming.bridge --mqtt-host localhost --bootstrap-servers localhost:9092
@@ -40,15 +48,32 @@ from .config import (
     SOURCE_BRIDGE,
     TOPIC_ALERTS,
     TOPIC_AUDIT,
+    TOPIC_FEATURES,
+    TOPIC_HEALTH,
+    TOPIC_MAINTENANCE,
     TOPIC_TELEMETRY,
 )
 from .producer import EventProducer
-from .schemas import ValidationResult, build_envelope, validate_status, validate_telemetry
+from .schemas import (
+    ValidationResult,
+    build_envelope,
+    validate_derived,
+    validate_status,
+    validate_telemetry,
+)
 
 log = logging.getLogger("kafka.bridge")
 
 TELEMETRY_SUB = f"{TOPIC_PREFIX}/+/telemetry"
 STATUS_SUB = f"{TOPIC_PREFIX}/+/status"
+
+# Node-RED derived-event channels: MQTT topic suffix -> (Kafka topic, event_type).
+DERIVED_ROUTES: dict[str, tuple[str, str]] = {
+    "features": (TOPIC_FEATURES, "features"),
+    "health": (TOPIC_HEALTH, "health"),
+    "alerts": (TOPIC_ALERTS, "alert"),
+    "actions": (TOPIC_MAINTENANCE, "maintenance_action"),
+}
 
 
 class MqttKafkaBridge:
@@ -69,6 +94,7 @@ class MqttKafkaBridge:
         self.stats = {
             "telemetry_ok": 0,
             "status_ok": 0,
+            "derived_ok": 0,
             "quarantined": 0,
             "alerts": 0,
             "produce_errors": 0,
@@ -150,17 +176,22 @@ class MqttKafkaBridge:
         self._produce(TOPIC_AUDIT, event)
         self.stats["status_ok"] += 1
 
-        # LWT / disconnect => connectivity incident on the alerts stream.
+        # Only a *broker-fired LWT* (ungraceful disconnect) is a connectivity
+        # incident. A graceful simulator shutdown also retains an OFFLINE
+        # status, but with reason "graceful_shutdown" — that is normal
+        # operation and must not raise a CRITICAL alert (it is still kept in
+        # the audit stream via the status copy above).
         connectivity = str(result.payload.get("connectivity", "")).upper()
         machine_status = str(result.payload.get("machine_status", "")).upper()
-        if connectivity == "OFFLINE" or machine_status == "OFFLINE":
+        reason = str(result.payload.get("reason", ""))
+        if (connectivity == "OFFLINE" or machine_status == "OFFLINE") and reason == "unexpected_disconnect_lwt":
             alert = build_envelope(
                 "alert",
                 result.machine_id,  # type: ignore[arg-type]
                 {
                     "alert_type": "CONNECTIVITY",
                     "severity": "CRITICAL",
-                    "reason": result.payload.get("reason", "unexpected_disconnect_lwt"),
+                    "reason": reason,
                     "machine_status": "OFFLINE",
                 },
                 event_time=result.event_time,
@@ -173,19 +204,50 @@ class MqttKafkaBridge:
     # ------------------------------------------------------------------
     # MQTT plumbing
     # ------------------------------------------------------------------
+    def handle_derived(self, kind: str, raw_payload: bytes) -> None:
+        """Forward a Node-RED derived event (features/health/alerts/actions) to Kafka."""
+        kafka_topic, event_type = DERIVED_ROUTES[kind]
+        try:
+            raw = json.loads(raw_payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            self._quarantine(kind, raw_payload, [f"invalid JSON: {exc}"], None)
+            return
+
+        result = validate_derived(raw)
+        if not result.ok:
+            self._quarantine(kind, raw_payload, result.errors, result.machine_id)
+            return
+
+        event = build_envelope(
+            event_type,
+            result.machine_id,  # type: ignore[arg-type]
+            result.payload,
+            event_time=result.event_time,
+            source="nodered",  # derived events originate from Member 3's flows
+        )
+        self._produce(kafka_topic, event)
+        self._produce(TOPIC_AUDIT, event)
+        self.stats["derived_ok"] += 1
+
     def _on_connect(self, client, userdata, flags, rc, properties=None) -> None:
         if rc == 0:
-            log.info("connected to MQTT %s:%d, subscribing to %s and %s", self.mqtt_host, self.mqtt_port, TELEMETRY_SUB, STATUS_SUB)
+            subs = [TELEMETRY_SUB, STATUS_SUB] + [f"{TOPIC_PREFIX}/+/{k}" for k in DERIVED_ROUTES]
+            log.info("connected to MQTT %s:%d, subscribing to %s", self.mqtt_host, self.mqtt_port, ", ".join(subs))
             client.subscribe(TELEMETRY_SUB, qos=0)
             client.subscribe(STATUS_SUB, qos=1)
+            for kind in DERIVED_ROUTES:
+                client.subscribe(f"{TOPIC_PREFIX}/+/{kind}", qos=1)
         else:
             log.error("MQTT connect failed with rc=%s", rc)
 
     def _on_message(self, client, userdata, msg) -> None:
-        if msg.topic.endswith("/telemetry"):
+        suffix = msg.topic.rsplit("/", 1)[-1]
+        if suffix == "telemetry":
             self.handle_telemetry(msg.payload)
-        elif msg.topic.endswith("/status"):
+        elif suffix == "status":
             self.handle_status(msg.payload)
+        elif suffix in DERIVED_ROUTES:
+            self.handle_derived(suffix, msg.payload)
 
     def run(self) -> None:
         import paho.mqtt.client as mqtt

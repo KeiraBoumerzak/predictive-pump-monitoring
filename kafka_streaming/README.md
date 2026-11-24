@@ -27,11 +27,25 @@ Six topics, all keyed by `machine_id`, all with 3 partitions (one per pump):
 | Topic | What goes in it | Who writes it |
 | :--- | :--- | :--- |
 | `machine.telemetry` | validated raw sensor readings | bridge (this part) |
-| `machine.features` | rolling averages, slopes, R² | Node-RED (Member 3) |
-| `machine.health` | risk score, state, TTC, priority | Node-RED (Member 3) |
-| `machine.alerts` | WARNING/CRITICAL/OFFLINE events | bridge + Member 3 |
-| `maintenance.actions` | recommended + accepted actions | Node-RED (Member 3) |
+| `machine.features` | rolling averages, slopes, R² | Node-RED → bridge |
+| `machine.health` | risk score, state, TTC, priority | Node-RED → bridge |
+| `machine.alerts` | WARNING/CRITICAL/OFFLINE events | bridge + Node-RED → bridge |
+| `maintenance.actions` | recommended + accepted actions | Node-RED → bridge |
 | `machine.audit` | copy of everything, for replay | bridge (+ everyone) |
+
+All Kafka producers are Python. Node-RED doesn't produce to Kafka directly
+(avoids the flaky Node-RED Kafka plugin situation) — it publishes its derived
+events to MQTT and the bridge forwards them:
+
+| MQTT topic (Node-RED publishes) | Kafka topic | event_type |
+| :--- | :--- | :--- |
+| `factory/site01/machine/+/features` | `machine.features` | `features` |
+| `factory/site01/machine/+/health` | `machine.health` | `health` |
+| `factory/site01/machine/+/alerts` | `machine.alerts` | `alert` |
+| `factory/site01/machine/+/actions` | `maintenance.actions` | `maintenance_action` |
+
+Derived events also get copied to `machine.audit` and carry
+`"source": "nodered"` in the envelope.
 
 **Why `machine_id` as the key:** Kafka hashes the key to pick a partition, so
 all events for one pump always land in the same partition, in order. We can
@@ -78,9 +92,14 @@ so during the demo we can show exactly what was rejected and why
 ## The LWT -> alert path
 
 When a pump crashes ungracefully, Mosquitto fires the Last Will on its
-`/status` topic (`connectivity: OFFLINE`). The bridge picks that up and writes
-a `CONNECTIVITY` / `CRITICAL` alert to `machine.alerts`. Tested with
-`sim_cli crash PUMP-02`.
+`/status` topic (`connectivity: OFFLINE`, `reason: unexpected_disconnect_lwt`).
+The bridge picks that up and writes a `CONNECTIVITY` / `CRITICAL` alert to
+`machine.alerts`. Tested with `sim_cli crash PUMP-02`.
+
+A *graceful* shutdown (Ctrl+C on the simulator) also retains an OFFLINE
+status, but with `reason: graceful_shutdown` — that's normal operation, so it
+does NOT raise a CRITICAL alert. It's still kept in `machine.audit` like any
+other status event.
 
 ## Delivery semantics (the "why" for the report)
 
@@ -140,8 +159,14 @@ python -m kafka_streaming.consumer_replay --topic machine.telemetry --group-id c
 ```
 
 The summary at the end prints how many records were retained vs replayed, a
-per-machine and per-type breakdown, and whether per-machine ordering held
-(it exits with code 2 if it didn't).
+per-machine and per-type breakdown, and two correctness checks (exit code 2
+if either fails):
+
+- **ordering**: the simulator's `seq` must never go backwards per machine.
+  A `seq` that jumps back to `1` is counted as a simulator restart (the Kafka
+  log outlives simulator runs), not a violation.
+- **partition consistency**: every event for one machine must come from the
+  same partition (that's what keying by `machine_id` guarantees).
 
 ## Tests
 
@@ -149,8 +174,9 @@ per-machine and per-type breakdown, and whether per-machine ordering held
 python -m unittest kafka_streaming.test_kafka_streaming -v
 ```
 
-16 tests, no broker needed — they cover the validation rules, the envelope,
-key encoding and the audit-store dedup logic.
+24 tests, no broker needed — they cover the validation rules (telemetry,
+status, derived), the envelope, key encoding, the bridge's routing (derived
+events, LWT vs graceful shutdown) and the audit-store dedup logic.
 
 ## Notes / gotchas I ran into
 

@@ -17,10 +17,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from kafka_streaming.bridge import DERIVED_ROUTES, MqttKafkaBridge
 from kafka_streaming.config import ALL_TOPICS, new_replay_group_id
 from kafka_streaming.consumer_audit import AuditStore
 from kafka_streaming.producer import encode_key, serialize_event
-from kafka_streaming.schemas import build_envelope, validate_status, validate_telemetry
+from kafka_streaming.schemas import (
+    build_envelope,
+    validate_derived,
+    validate_status,
+    validate_telemetry,
+)
 
 VALID_TELEMETRY = {
     "machine_id": "PUMP-03",
@@ -90,6 +96,95 @@ class TestStatusValidation(unittest.TestCase):
         self.assertFalse(validate_status({"connectivity": "ONLINE"}).ok)
 
 
+class TestDerivedValidation(unittest.TestCase):
+    def test_valid_derived_event_accepted(self):
+        result = validate_derived({"machine_id": "PUMP-01", "timestamp": "2026-11-14T16:55:12.401Z", "risk_score": 42})
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.machine_id, "PUMP-01")
+        self.assertEqual(result.payload["risk_score"], 42)
+
+    def test_missing_timestamp_defaults_to_receipt_time(self):
+        result = validate_derived({"machine_id": "PUMP-02", "state": "WARNING"})
+        self.assertTrue(result.ok, result.errors)
+        self.assertIsNotNone(result.event_time)
+
+    def test_missing_machine_id_rejected(self):
+        self.assertFalse(validate_derived({"state": "WARNING"}).ok)
+
+
+class FakeProducer:
+    """Captures produced events so bridge routing can be tested broker-free."""
+
+    bootstrap_servers = "fake:9092"
+
+    def __init__(self):
+        self.sent: list[tuple[str, dict]] = []
+
+    def send(self, topic, event, **kwargs):
+        self.sent.append((topic, event))
+        return {"topic": topic, "partition": 0, "offset": len(self.sent) - 1}
+
+    def topics(self):
+        return [t for t, _ in self.sent]
+
+
+class TestBridgeRouting(unittest.TestCase):
+    def _bridge(self):
+        producer = FakeProducer()
+        return MqttKafkaBridge(producer), producer
+
+    def test_lwt_disconnect_produces_critical_alert(self):
+        bridge, producer = self._bridge()
+        bridge.handle_status(json.dumps({
+            "machine_id": "PUMP-02",
+            "connectivity": "OFFLINE",
+            "machine_status": "OFFLINE",
+            "reason": "unexpected_disconnect_lwt",
+        }).encode())
+        self.assertIn("machine.alerts", producer.topics())
+        alert = next(e for t, e in producer.sent if t == "machine.alerts")
+        self.assertEqual(alert["event_type"], "alert")
+        self.assertEqual(alert["payload"]["severity"], "CRITICAL")
+
+    def test_graceful_shutdown_produces_no_alert(self):
+        bridge, producer = self._bridge()
+        bridge.handle_status(json.dumps({
+            "machine_id": "PUMP-02",
+            "connectivity": "OFFLINE",
+            "machine_status": "OFFLINE",
+            "reason": "graceful_shutdown",
+        }).encode())
+        self.assertNotIn("machine.alerts", producer.topics())
+        self.assertIn("machine.audit", producer.topics())  # still kept for history
+        self.assertEqual(bridge.stats["alerts"], 0)
+
+    def test_derived_events_route_to_their_topics(self):
+        expected = {
+            "features": ("machine.features", "features"),
+            "health": ("machine.health", "health"),
+            "alerts": ("machine.alerts", "alert"),
+            "actions": ("maintenance.actions", "maintenance_action"),
+        }
+        self.assertEqual(
+            {k: v for k, v in DERIVED_ROUTES.items()},
+            expected,
+        )
+        for kind, (topic, event_type) in expected.items():
+            bridge, producer = self._bridge()
+            bridge.handle_derived(kind, json.dumps({"machine_id": "PUMP-03", "value": 1}).encode())
+            self.assertEqual(producer.topics(), [topic, "machine.audit"])
+            event = producer.sent[0][1]
+            self.assertEqual(event["event_type"], event_type)
+            self.assertEqual(event["source"], "nodered")
+
+    def test_derived_event_without_machine_id_is_quarantined(self):
+        bridge, producer = self._bridge()
+        bridge.handle_derived("health", json.dumps({"state": "WARNING"}).encode())
+        self.assertEqual(producer.topics(), ["machine.audit"])
+        self.assertEqual(producer.sent[0][1]["event_type"], "quarantine")
+        self.assertEqual(bridge.stats["quarantined"], 1)
+
+
 class TestEnvelopeAndKeys(unittest.TestCase):
     def test_envelope_carries_required_metadata(self):
         env = build_envelope(
@@ -153,11 +248,21 @@ class TestAuditStore(unittest.TestCase):
             with AuditStore(tmp) as store:
                 event = self._event("PUMP-03", 7)
                 self.assertTrue(store.append("machine.telemetry", 2, 42, event))
-                self.assertFalse(store.append("machine.telemetry", 2, 42, event))  # redelivery
-                self.assertEqual(store.records_written, 1)
-                self.assertEqual(store.duplicates_skipped, 1)
+                self.assertFalse(store.append("machine.telemetry", 2, 42, event))  # exact redelivery
+                self.assertFalse(store.append("machine.telemetry", 2, 40, event))  # older offset (batch replay)
+                self.assertTrue(store.append("machine.telemetry", 2, 43, event))   # next offset accepted
+                self.assertEqual(store.records_written, 2)
+                self.assertEqual(store.duplicates_skipped, 2)
             lines = (Path(tmp) / "machine.telemetry" / "PUMP-03.jsonl").read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(lines), 1)
+            self.assertEqual(len(lines), 2)
+
+    def test_dedup_is_tracked_per_topic_and_machine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with AuditStore(tmp) as store:
+                self.assertTrue(store.append("machine.telemetry", 0, 5, self._event("PUMP-01", 1)))
+                # Same offset on a different topic / machine is NOT a duplicate.
+                self.assertTrue(store.append("machine.audit", 0, 5, self._event("PUMP-01", 1)))
+                self.assertTrue(store.append("machine.telemetry", 1, 5, self._event("PUMP-02", 1)))
 
 
 if __name__ == "__main__":

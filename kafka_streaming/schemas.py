@@ -168,6 +168,40 @@ def validate_status(raw: Dict[str, Any]) -> ValidationResult:
     )
 
 
+def validate_derived(raw: Dict[str, Any]) -> ValidationResult:
+    """Validate a Node-RED derived event (features / health / alerts / actions).
+
+    Derived payloads are produced by our own Node-RED flows, so validation is
+    lighter than for raw telemetry: ``machine_id`` is mandatory (Kafka key),
+    ``timestamp`` is optional and defaults to receipt time, and the rest of
+    the object is forwarded as-is.
+    """
+    if not isinstance(raw, dict):
+        return ValidationResult(ok=False, errors=["payload is not a JSON object"])
+
+    errors: list[str] = []
+    machine_id = raw.get("machine_id")
+    if not isinstance(machine_id, str) or not machine_id.strip():
+        errors.append("missing or invalid 'machine_id'")
+        machine_id = None
+    else:
+        machine_id = machine_id.strip()
+
+    event_time = _parse_iso8601(raw.get("timestamp")) or utc_now_iso()
+
+    payload: Dict[str, Any] = dict(raw)
+    if machine_id is not None:
+        payload["machine_id"] = machine_id
+
+    return ValidationResult(
+        ok=not errors,
+        machine_id=machine_id,
+        event_time=event_time,
+        payload=payload,
+        errors=errors,
+    )
+
+
 def build_envelope(
     event_type: str,
     machine_id: str,

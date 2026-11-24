@@ -32,7 +32,7 @@ import signal
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, Tuple
 
 from .config import (
     ALL_TOPICS,
@@ -42,18 +42,20 @@ from .config import (
 
 log = logging.getLogger("kafka.consumer_audit")
 
-# How many (partition, offset) coordinates to remember per topic/machine for
-# redelivery deduplication before falling back to "trust the offset order".
-_DEDUP_WINDOW = 5000
-
 
 class AuditStore:
-    """Append-only JSONL persistence with per-machine files and offset dedup."""
+    """Append-only JSONL persistence with per-machine files and offset dedup.
+
+    Deduplication: every (topic, machine_id) pair is keyed to exactly one
+    partition, whose offsets are strictly increasing. So remembering the
+    highest offset persisted per pair is enough to detect redeliveries — any
+    offset at or below it has already been stored.
+    """
 
     def __init__(self, data_dir: str | Path) -> None:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._seen: Dict[Tuple[str, str], Set[int]] = {}
+        self._highest_offset: Dict[Tuple[str, str], int] = {}
         self._handles: Dict[Path, Any] = {}
         self.records_written = 0
         self.duplicates_skipped = 0
@@ -65,16 +67,11 @@ class AuditStore:
         return topic_dir / f"{safe_machine}.jsonl"
 
     def _is_duplicate(self, topic: str, machine_id: str, offset: int) -> bool:
-        seen = self._seen.setdefault((topic, machine_id), set())
-        if offset in seen:
+        key = (topic, machine_id)
+        highest = self._highest_offset.get(key)
+        if highest is not None and offset <= highest:
             return True
-        if len(seen) >= _DEDUP_WINDOW:
-            # Window full: offsets arrive in order per partition, so anything
-            # at/below the smallest retained offset is old; reset the window.
-            lowest = min(seen)
-            seen = {o for o in seen if o >= lowest}
-            self._seen[(topic, machine_id)] = seen
-        seen.add(offset)
+        self._highest_offset[key] = offset
         return False
 
     def append(self, topic: str, partition: int, offset: int, event: Dict[str, Any]) -> bool:
@@ -142,18 +139,30 @@ class AuditConsumer:
     def run(self, poll_timeout_ms: int = 1000) -> None:
         log.info("audit consumer started (group=%s)", self.group_id)
         try:
+            from kafka import TopicPartition
+
             while not self._stop.is_set():
                 records = self.consumer.poll(timeout_ms=poll_timeout_ms)
                 if not records:
                     continue
+                failed: Tuple[str, int, int] | None = None
                 for tp, msgs in records.items():
                     for msg in msgs:
                         try:
                             self.store.append(msg.topic, msg.partition, msg.offset, msg.value)
                         except Exception:
-                            # Do NOT commit past a failed write; log and retry next poll.
                             log.exception("failed to persist %s[%d]@%d", msg.topic, msg.partition, msg.offset)
+                            failed = (msg.topic, msg.partition, msg.offset)
                             break
+                    if failed:
+                        break
+                if failed:
+                    # Do NOT commit past a failed write. Seek back to the
+                    # failed record so the next poll reprocesses it.
+                    topic, partition, offset = failed
+                    self.consumer.seek(TopicPartition(topic, partition), offset)
+                    self._stop.wait(1.0)  # back off before retrying
+                    continue
                 self.store.flush()
                 self.consumer.commit()
         finally:

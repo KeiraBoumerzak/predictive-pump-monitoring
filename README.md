@@ -156,7 +156,7 @@ DIS/
 │   ├── test_simulator.py
 │   ├── mosquitto/
 │   └── README.md       # Detailed MQTT topic, LWT & delivery semantics guide
-├── kafka/              # [Member 2] Kafka cluster compose, Python producers & consumer groups (audit/replay)
+├── kafka_streaming/    # [Member 2] Kafka cluster compose, Python producers & consumer groups (audit/replay)
 ├── nodered/            # [Member 3] Node-RED flows & exported flow documentation
 ├── document/           # Project rules, syllabus, and proposal specifications
 └── requirements.txt    # Python dependencies

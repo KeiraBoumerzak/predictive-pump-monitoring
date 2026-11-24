@@ -58,7 +58,7 @@ flowchart LR
 | **Virtual Asset Simulator** | Python (`simulator/`) | Models 3 motor-pump units (`PUMP-01..03`), 5 operating/fault modes, Gaussian noise, and gradual post-maintenance recovery via 3 independent MQTT client connections. |
 | **MQTT Broker** | Eclipse Mosquitto | Lightweight pub/sub edge transport providing native Last Will and Testament (LWT) disconnect detection, retained device state, and low-overhead telemetry push. |
 | **Flow Engine & UI** | Node-RED (`nodered/`) | Validates incoming JSON schemas, computes rolling-window trends (`TTC`), evaluates explainable health/risk scores, ranks fleet priority, and renders the live operator dashboard. |
-| **Event Streaming** | Apache Kafka + Python (`kafka/`) | Python producers and independent Python consumer groups store append-only, immutable streams partitioned by `machine_id` for per-pump ordering, audit persistence, and offset replay. |
+| **Event Streaming** | Apache Kafka + Python (`kafka_streaming/`) | Python producers and independent Python consumer groups store append-only, immutable streams partitioned by `machine_id` for per-pump ordering, audit persistence, and offset replay. |
 
 ---
 

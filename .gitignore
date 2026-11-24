@@ -21,3 +21,6 @@ Thumbs.db
 
 # Course reference documents (kept local only)
 document/
+
+# Runtime data produced by the audit consumer
+data/

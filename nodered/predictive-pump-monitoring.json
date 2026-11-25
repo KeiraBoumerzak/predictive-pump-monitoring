@@ -1,0 +1,1055 @@
+[
+  {
+    "id": "tab_pm",
+    "type": "tab",
+    "label": "Predictive Maintenance (Member 3)",
+    "disabled": false,
+    "info": "Member 3 flow: validate telemetry, analytics (risk, state, fault cause, TTC), dashboard, maintenance loop.\nDerived events are published to MQTT (/features, /health, /alerts, /actions); Member 2's bridge forwards them to Kafka."
+  },
+  {
+    "id": "broker",
+    "type": "mqtt-broker",
+    "name": "Mosquitto (localhost:1883)",
+    "broker": "localhost",
+    "port": "1883",
+    "clientid": "nodered-member3",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "30",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": ""
+  },
+  {
+    "id": "cfg_pumpguard_base_2026",
+    "type": "ui_base",
+    "theme": {
+      "name": "theme-light",
+      "lightTheme": {
+        "default": "#0094CE",
+        "baseColor": "#1185ac",
+        "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
+        "edited": true,
+        "reset": false
+      },
+      "darkTheme": {
+        "default": "#1f3b57",
+        "baseColor": "#1f3b57",
+        "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
+        "edited": true,
+        "reset": false
+      },
+      "customTheme": {
+        "name": "Untitled Theme 1",
+        "default": "#4B7930",
+        "baseColor": "#4B7930",
+        "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"
+      },
+      "themeState": {
+        "base-color": {
+          "default": "#0094CE",
+          "value": "#1185ac",
+          "edited": true
+        },
+        "base-font": {
+          "value": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"
+        },
+        "page-backgroundColor": {
+          "value": "#f5f7fa"
+        },
+        "page-titlebar-backgroundColor": {
+          "value": "#1185ac"
+        },
+        "page-sidebar-backgroundColor": {
+          "value": "#ffffff"
+        },
+        "group-textColor": {
+          "value": "#1d2a31"
+        },
+        "group-borderColor": {
+          "value": "#e2e7ea"
+        },
+        "group-backgroundColor": {
+          "value": "#ffffff"
+        },
+        "widget-textColor": {
+          "value": "#1d2a31"
+        },
+        "widget-backgroundColor": {
+          "value": "#ffffff"
+        },
+        "widget-borderColor": {
+          "value": "#e2e7ea"
+        }
+      },
+      "angularTheme": {
+        "primary": "indigo",
+        "accents": "blue",
+        "warn": "red",
+        "background": "grey",
+        "palette": "light"
+      }
+    },
+    "site": {
+      "name": "PumpGuard Fleet Monitor",
+      "hideToolbar": "false",
+      "allowSwipe": "false",
+      "lockMenu": "false",
+      "allowTempTheme": "true",
+      "dateFormat": "DD/MM/YYYY",
+      "sizes": {
+        "sx": 48,
+        "sy": 48,
+        "gx": 6,
+        "gy": 6,
+        "cx": 6,
+        "cy": 6,
+        "px": 0,
+        "py": 0
+      }
+    }
+  },
+  {
+    "id": "cfg_pumpguard_tab_2026",
+    "type": "ui_tab",
+    "name": "Fleet Monitor",
+    "icon": "dashboard",
+    "order": 1,
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "g_fleet",
+    "type": "ui_group",
+    "name": "Fleet overview",
+    "tab": "cfg_pumpguard_tab_2026",
+    "order": 1,
+    "disp": false,
+    "width": 18,
+    "collapse": false
+  },
+  {
+    "id": "g_trend",
+    "type": "ui_group",
+    "name": "Trends (smoothed, last 3 min)",
+    "tab": "cfg_pumpguard_tab_2026",
+    "order": 3,
+    "disp": true,
+    "width": "24",
+    "collapse": false
+  },
+  {
+    "id": "g_events",
+    "type": "ui_group",
+    "name": "Event log",
+    "tab": "cfg_pumpguard_tab_2026",
+    "order": 4,
+    "disp": true,
+    "width": "24",
+    "collapse": false
+  },
+  {
+    "id": "g_ctl",
+    "type": "ui_group",
+    "name": "Demo control panel",
+    "tab": "cfg_pumpguard_tab_2026",
+    "order": 2,
+    "disp": true,
+    "width": 6,
+    "collapse": false
+  },
+  {
+    "id": "c1",
+    "type": "comment",
+    "name": "1. Ingest + validate telemetry (QoS 0)",
+    "info": "Bad JSON, missing machine_id/timestamp or non-numeric sensors are quarantined (shown on the dashboard and in the debug sidebar), never processed.",
+    "x": 170,
+    "y": 40,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "in_tel",
+    "type": "mqtt in",
+    "name": "telemetry (all pumps)",
+    "topic": "factory/site01/machine/+/telemetry",
+    "qos": "0",
+    "datatype": "utf8",
+    "broker": "broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 170,
+    "y": 100,
+    "wires": [
+      [
+        "validate"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "validate",
+    "type": "function",
+    "name": "Validate & quarantine",
+    "func": "// [1] Validate & quarantine telemetry\n// Output 1 = valid reading (msg.payload = clean object)\n// Output 2 = quarantined message (for the debug sidebar + dashboard log)\nconst RANGES = {                         // same plausible ranges as Member 2's schemas.py\n    temperature_c: [-40, 250],\n    vibration_rms: [0, 100],\n    current_a:     [0, 200],\n    rpm:           [0, 6000]\n};\nconst topicId = (msg.topic || \"\").split(\"/\")[3] || null;   // factory/site01/machine/{id}/telemetry\nlet d;\ntry {\n    d = typeof msg.payload === \"string\" ? JSON.parse(msg.payload) : msg.payload;\n} catch (e) {\n    return [null, { topic: msg.topic, payload: { machine_id: topicId, errors: [\"invalid JSON\"], raw: String(msg.payload).slice(0, 200) } }];\n}\nconst errors = [];\nif (!d || typeof d !== \"object\" || Array.isArray(d)) errors.push(\"payload is not a JSON object\");\nelse {\n    if (typeof d.machine_id !== \"string\" || !d.machine_id.trim()) errors.push(\"missing or invalid machine_id\");\n    if (!d.timestamp || isNaN(Date.parse(d.timestamp))) errors.push(\"missing or invalid timestamp\");\n    for (const k in RANGES) {\n        const v = d[k];\n        if (typeof v !== \"number\" || !isFinite(v)) errors.push(`missing or non-numeric ${k}`);\n        else if (v < RANGES[k][0] || v > RANGES[k][1]) errors.push(`${k}=${v} outside [${RANGES[k]}]`);\n    }\n}\nif (errors.length) {\n    const q = { machine_id: (d && d.machine_id) || topicId, errors, raw: JSON.stringify(d).slice(0, 200), received_at: new Date().toISOString() };\n    const log = flow.get(\"quarantine\") || [];\n    log.unshift(q); flow.set(\"quarantine\", log.slice(0, 20));\n    node.status({ fill: \"red\", shape: \"dot\", text: `quarantined: ${errors[0]}` });\n    return [null, { topic: msg.topic, payload: q }];\n}\nnode.status({ fill: \"green\", shape: \"dot\", text: `${d.machine_id} seq ${d.seq}` });\nmsg.payload = {\n    machine_id: d.machine_id.trim(), timestamp: d.timestamp, seq: d.seq,\n    machine_status: d.machine_status || \"RUNNING\",\n    temperature_c: d.temperature_c, vibration_rms: d.vibration_rms,\n    current_a: d.current_a, rpm: d.rpm\n};   // sim_scenario is deliberately dropped: decisions use only the 4 sensors\nreturn [msg, null];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "",
+    "x": 410,
+    "y": 100,
+    "wires": [
+      [
+        "analytics"
+      ],
+      [
+        "dbg_q"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "dbg_q",
+    "type": "debug",
+    "name": "Quarantined payloads",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 650,
+    "y": 140,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "c2",
+    "type": "comment",
+    "name": "2. Analytics: EMA smoothing, 20-sample window, weighted risk + safety floor, state, fault cause, TTC (R2 >= 0.70)",
+    "info": "",
+    "x": 190,
+    "y": 200,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "analytics",
+    "type": "function",
+    "name": "Analytics engine",
+    "func": "// [2] Analytics engine: smoothing, sliding window, risk score, state, fault cause, TTC (all ASCII strings)\n// Outputs: 1 health (MQTT), 2 features (MQTT), 3 alert on state change (MQTT),\n//          4 recommended action (MQTT), 5 risk chart, 6 temperature chart, 7 vibration chart\nconst WINDOW = 20, MIN_SAMPLES = 10, R2_MIN = 0.70;\nconst ALPHA = 0.3;            // EMA smoothing factor\nconst PUBLISH_EVERY = 5;      // health/features to Kafka every 5 samples (~5 s)\nconst CONFIRM = 3;            // a new state must hold 3 samples before it is accepted (no flapping)\nconst W = { temperature_c: 0.30, vibration_rms: 0.40, current_a: 0.20, rpm: 0.10 };\n// higher-is-worse signals: warning above `warn`, critical above `crit`\nconst HI = { temperature_c: { warn: 70, crit: 80 }, vibration_rms: { warn: 3, crit: 6 }, current_a: { warn: 15, crit: 20 } };\nconst RPM = { lo: 1400, hi: 1500, band: 50 };   // warning 50 rpm outside, critical beyond that\nconst SIGNALS = Object.keys(W);\nconst CAUSES = {\n    BEARING_WEAR:     { label: \"Bearing wear (vibration-led)\",        action: \"Inspect and replace motor bearings; check shaft alignment and lubrication.\" },\n    OVERHEATING:      { label: \"Cooling failure / overheating\",       action: \"Check cooling fan and ventilation, clean the motor fins, verify ambient temperature.\" },\n    OVERLOAD:         { label: \"Mechanical / hydraulic overload\",     action: \"Reduce the hydraulic load: check for a blocked impeller or closed valve, verify supply voltage.\" },\n    COMBINED_FAILURE: { label: \"Combined multi-subsystem failure\",    action: \"Stop the unit and run a full inspection (bearings, cooling and load).\" },\n    NONE:             { label: \"No fault detected\",                   action: \"No action needed.\" }\n};\n\nfunction region(sig, v) {                       // 0 normal, 1 warning, 2 critical\n    if (sig === \"rpm\") {\n        const dev = v < RPM.lo ? RPM.lo - v : v > RPM.hi ? v - RPM.hi : 0;\n        return dev === 0 ? 0 : dev <= RPM.band ? 1 : 2;\n    }\n    return v > HI[sig].crit ? 2 : v > HI[sig].warn ? 1 : 0;\n}\nfunction anomaly(sig, v) {                      // 0..100: 0 normal, 0-50 warning zone, 50-100 critical zone\n    let x;                                      // x = 0 at normal limit, 1 at critical limit, 2 = far past it\n    if (sig === \"rpm\") {\n        const dev = v < RPM.lo ? RPM.lo - v : v > RPM.hi ? v - RPM.hi : 0;\n        x = dev / RPM.band;\n    } else {\n        const { warn, crit } = HI[sig];\n        x = (v - warn) / (crit - warn);\n    }\n    return Math.max(0, Math.min(100, x * 50));\n}\nfunction linfit(xs, ys) {                       // least squares: slope and R2\n    const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;\n    let sxy = 0, sxx = 0, syy = 0;\n    for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; }\n    if (sxx === 0) return { slope: 0, r2: 0 };\n    const slope = sxy / sxx;\n    return { slope, r2: syy === 0 ? 0 : (sxy * sxy) / (sxx * syy) };\n}\nfunction band(risk) { return risk >= 61 ? \"CRITICAL\" : risk >= 31 ? \"WARNING\" : \"NORMAL\"; }\nconst r = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;\n\nconst p = msg.payload, id = p.machine_id, t = Date.parse(p.timestamp) / 1000;\nconst fleet = flow.get(\"fleet\") || {};\nconst m = fleet[id] || { ema: {}, win: [], state: \"NORMAL\", pending: null, pendingN: 0, n: 0, lastSeq: -1 };\n\n// restart of the simulator resets seq -> start a fresh window\nif (typeof p.seq === \"number\" && p.seq < m.lastSeq) { m.win = []; m.ema = {}; }\nm.lastSeq = typeof p.seq === \"number\" ? p.seq : m.lastSeq;\n\n// 1. smoothing + sliding window\nconst s = {};\nfor (const k of SIGNALS) { m.ema[k] = m.ema[k] === undefined ? p[k] : ALPHA * p[k] + (1 - ALPHA) * m.ema[k]; s[k] = m.ema[k]; }\nm.win.push({ t, ...s }); if (m.win.length > WINDOW) m.win.shift();\n\n// 2. weighted risk + single-signal safety floor\nconst regions = {}, anom = {};\nlet risk = 0;\nfor (const k of SIGNALS) { regions[k] = region(k, s[k]); anom[k] = anomaly(k, s[k]); risk += W[k] * anom[k]; }\nconst worst = Math.max(...Object.values(regions));\nconst maxAnom = Math.max(...Object.values(anom));\n// safety floor: one bad signal can't be diluted by the healthy ones; floor grows with how far it is in its zone\nif (worst === 2) risk = Math.max(risk, Math.min(100, 65 + 0.7 * (maxAnom - 50)));\nelse if (worst === 1) risk = Math.max(risk, Math.min(60, 35 + 0.5 * maxAnom));\nrisk = Math.round(Math.min(100, risk));\nconst health = 100 - risk;\n\n// 3. state with confirmation (hysteresis)\nlet candidate = band(risk);\nif (p.machine_status === \"RECOVERING\" && candidate !== \"CRITICAL\") candidate = \"RECOVERING\";\nlet changedFrom = null;\nif (candidate !== m.state) {\n    if (m.pending === candidate) m.pendingN++; else { m.pending = candidate; m.pendingN = 1; }\n    if (m.pendingN >= CONFIRM) { changedFrom = m.state; m.state = candidate; m.pending = null; m.pendingN = 0; }\n} else { m.pending = null; m.pendingN = 0; }\n\n// 4. explainable fault cause (from sensors only, never sim_scenario)\nconst ab = k => regions[k] > 0;\nconst load = ab(\"current_a\") || ab(\"rpm\");\nlet cause = \"NONE\";\nif (ab(\"vibration_rms\") && load) cause = \"COMBINED_FAILURE\";\nelse if (ab(\"vibration_rms\")) cause = \"BEARING_WEAR\";\nelse if (load) cause = \"OVERLOAD\";\nelse if (ab(\"temperature_c\")) cause = \"OVERHEATING\";\n\n// 5. dominant signal = biggest weighted contribution; if all normal, closest to its critical limit\nlet dominant = SIGNALS.reduce((a, b) => W[b] * anom[b] > W[a] * anom[a] ? b : a);\nif (risk === 0 || W[dominant] * anom[dominant] === 0) {\n    const closeness = k => k === \"rpm\" ? Math.max(RPM.lo - s.rpm, s.rpm - RPM.hi) / RPM.band : (s[k] - HI[k].warn) / (HI[k].crit - HI[k].warn);\n    dominant = SIGNALS.reduce((a, b) => closeness(b) > closeness(a) ? b : a);\n}\n\n// 6. trustworthy TTC on the dominant signal\nconst xs = m.win.map(w => w.t), ys = m.win.map(w => w[dominant]);\nlet ttc = { value_s: null, label: \"Unknown\", reliable: false, signal: dominant, r2: null, slope: null, samples: m.win.length };\nif (m.win.length >= 2) {\n    const fit = linfit(xs, ys); ttc.r2 = r(fit.r2, 3); ttc.slope = r(fit.slope, 4);\n    let limit, toward;\n    if (dominant === \"rpm\") { limit = fit.slope < 0 ? RPM.lo - RPM.band : RPM.hi + RPM.band; toward = fit.slope !== 0; }\n    else { limit = HI[dominant].crit; toward = fit.slope > 0; }\n    const cur = s[dominant];\n    const already = dominant === \"rpm\" ? regions.rpm === 2 : cur > limit;\n    if (already) ttc = { ...ttc, value_s: 0, label: \"Already critical\", reliable: true };\n    else if (m.win.length >= MIN_SAMPLES && fit.r2 >= R2_MIN && toward) {\n        const sec = (limit - cur) / fit.slope;\n        if (sec > 0 && isFinite(sec)) ttc = { ...ttc, value_s: Math.round(sec), label: `~${Math.round(sec)} s (estimated)`, reliable: true };\n    }\n}\n\nm.n++; m.last = { ts: p.timestamp, seen: Date.now(), raw: { temperature_c: p.temperature_c, vibration_rms: p.vibration_rms, current_a: p.current_a, rpm: p.rpm },\n    smoothed: Object.fromEntries(SIGNALS.map(k => [k, r(s[k])])), regions, anomaly: Object.fromEntries(SIGNALS.map(k => [k, r(anom[k], 1)])),\n    risk, health, cause, cause_label: CAUSES[cause].label, action: CAUSES[cause].action, dominant, ttc, machine_status: p.machine_status };\nif (!m.connectivity) m.connectivity = \"ONLINE\";\nfleet[id] = m; flow.set(\"fleet\", fleet);\nnode.status({ fill: m.state === \"CRITICAL\" ? \"red\" : m.state === \"WARNING\" ? \"yellow\" : \"green\", shape: \"dot\", text: `${id} ${m.state} risk ${risk}` });\n\nconst base = `factory/site01/machine/${id}`;\nconst out = [null, null, null, null, null, null, null];\nif (m.n % PUBLISH_EVERY === 0 || changedFrom) {\n    out[0] = { topic: `${base}/health`, payload: { machine_id: id, timestamp: p.timestamp, seq: p.seq, state: m.state, risk_score: risk, health_score: health,\n        dominant_signal: dominant, likely_fault: cause, ttc_seconds: ttc.value_s, ttc_label: ttc.label, ttc_reliable: ttc.reliable, machine_status: p.machine_status } };\n    out[1] = { topic: `${base}/features`, payload: { machine_id: id, timestamp: p.timestamp, seq: p.seq, window_size: m.win.length, smoothing: `EMA alpha=${ALPHA}`,\n        moving_avg: m.last.smoothed, anomaly: m.last.anomaly, trend: { signal: dominant, slope_per_s: ttc.slope, r2: ttc.r2 } } };\n}\nif (changedFrom) {\n    out[2] = { topic: `${base}/alerts`, payload: { machine_id: id, timestamp: p.timestamp, alert_type: \"HEALTH_STATE\", severity: m.state === \"RECOVERING\" ? \"INFO\" : m.state,\n        previous_state: changedFrom, new_state: m.state, risk_score: risk, likely_fault: cause, dominant_signal: dominant, ttc_label: ttc.label } };\n    if (m.state === \"WARNING\" || m.state === \"CRITICAL\") {\n        out[3] = { topic: `${base}/actions`, payload: { machine_id: id, timestamp: p.timestamp, action_type: \"RECOMMENDED\", likely_fault: cause,\n            recommended_action: CAUSES[cause].action, state: m.state, risk_score: risk, ttc_label: ttc.label } };\n    }\n    const log = flow.get(\"alertlog\") || [];\n    log.unshift({ time: p.timestamp, machine_id: id, from: changedFrom, to: m.state, text: `${CAUSES[cause].label} (risk ${risk})`, sev: m.state });\n    flow.set(\"alertlog\", log.slice(0, 15));\n}\nout[4] = { topic: id, payload: risk };\nout[5] = { topic: id, payload: r(s.temperature_c, 1) };\nout[6] = { topic: id, payload: r(s.vibration_rms, 2) };\nreturn out;\n",
+    "outputs": 7,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "Outputs: 1 health · 2 features · 3 alert (state change) · 4 recommended action · 5-7 dashboard charts",
+    "x": 420,
+    "y": 300,
+    "wires": [
+      [
+        "mqtt_derived"
+      ],
+      [
+        "mqtt_derived"
+      ],
+      [
+        "mqtt_derived",
+        "toastfmt"
+      ],
+      [
+        "mqtt_derived"
+      ],
+      [
+        "ch_risk"
+      ],
+      [
+        "ch_temp"
+      ],
+      [
+        "ch_vib"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "mqtt_derived",
+    "type": "mqtt out",
+    "name": "derived events → MQTT (bridge → Kafka)",
+    "topic": "",
+    "qos": "1",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "broker",
+    "x": 760,
+    "y": 240,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "toastfmt",
+    "type": "function",
+    "name": "alert → toast text",
+    "func": "const a = msg.payload;\nmsg.topic = `${a.machine_id}: ${a.new_state}`;\nmsg.payload = `${a.previous_state} -> ${a.new_state} | ${a.likely_fault} | risk ${a.risk_score} | TTC ${a.ttc_label}`;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "",
+    "x": 700,
+    "y": 300,
+    "wires": [
+      [
+        "toast"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "toast",
+    "type": "ui_toast",
+    "position": "top right",
+    "displayTime": "6",
+    "highlight": "",
+    "sendall": true,
+    "outputs": 0,
+    "ok": "OK",
+    "cancel": "",
+    "raw": false,
+    "className": "",
+    "topic": "",
+    "name": "Operator notification",
+    "x": 950,
+    "y": 300,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "ch_risk",
+    "type": "ui_chart",
+    "name": "Risk score (0-100)",
+    "group": "g_trend",
+    "order": 1,
+    "width": "8",
+    "height": "5",
+    "label": "Risk score (0-100)",
+    "chartType": "line",
+    "legend": "true",
+    "xformat": "HH:mm:ss",
+    "interpolate": "linear",
+    "nodata": "waiting for telemetry",
+    "dot": false,
+    "ymin": "0",
+    "ymax": "100",
+    "removeOlder": "3",
+    "removeOlderPoints": "",
+    "removeOlderUnit": "60",
+    "cutout": 0,
+    "useOneColor": false,
+    "useUTC": false,
+    "colors": [
+      "#3366cc",
+      "#7a52c7",
+      "#1a9c9c",
+      "#d98b00",
+      "#d63c3c",
+      "#7f7f7f",
+      "#e377c2",
+      "#8c564b",
+      "#bcbd22"
+    ],
+    "outputs": 1,
+    "useDifferentColor": false,
+    "className": "",
+    "x": 700,
+    "y": 360,
+    "wires": [
+      []
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "ch_temp",
+    "type": "ui_chart",
+    "name": "Temperature (C)",
+    "group": "g_trend",
+    "order": 2,
+    "width": "8",
+    "height": "5",
+    "label": "Temperature (C)",
+    "chartType": "line",
+    "legend": "true",
+    "xformat": "HH:mm:ss",
+    "interpolate": "linear",
+    "nodata": "waiting for telemetry",
+    "dot": false,
+    "ymin": "40",
+    "ymax": "120",
+    "removeOlder": "3",
+    "removeOlderPoints": "",
+    "removeOlderUnit": "60",
+    "cutout": 0,
+    "useOneColor": false,
+    "useUTC": false,
+    "colors": [
+      "#3366cc",
+      "#7a52c7",
+      "#1a9c9c",
+      "#d98b00",
+      "#d63c3c",
+      "#7f7f7f",
+      "#e377c2",
+      "#8c564b",
+      "#bcbd22"
+    ],
+    "outputs": 1,
+    "useDifferentColor": false,
+    "className": "",
+    "x": 700,
+    "y": 400,
+    "wires": [
+      []
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "ch_vib",
+    "type": "ui_chart",
+    "name": "Vibration RMS (mm/s)",
+    "group": "g_trend",
+    "order": 3,
+    "width": "8",
+    "height": "5",
+    "label": "Vibration RMS (mm/s)",
+    "chartType": "line",
+    "legend": "true",
+    "xformat": "HH:mm:ss",
+    "interpolate": "linear",
+    "nodata": "waiting for telemetry",
+    "dot": false,
+    "ymin": "0",
+    "ymax": "10",
+    "removeOlder": "3",
+    "removeOlderPoints": "",
+    "removeOlderUnit": "60",
+    "cutout": 0,
+    "useOneColor": false,
+    "useUTC": false,
+    "colors": [
+      "#3366cc",
+      "#7a52c7",
+      "#1a9c9c",
+      "#d98b00",
+      "#d63c3c",
+      "#7f7f7f",
+      "#e377c2",
+      "#8c564b",
+      "#bcbd22"
+    ],
+    "outputs": 1,
+    "useDifferentColor": false,
+    "className": "",
+    "x": 700,
+    "y": 440,
+    "wires": [
+      []
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "cinit",
+    "type": "inject",
+    "name": "on deploy",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "0.5",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 400,
+    "wires": [
+      [
+        "chartinit"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "chartinit",
+    "type": "function",
+    "name": "Chart setup (series order)",
+    "func": "// [7] Runs once at deploy: fixes the series order (= colours) of the 3 charts and clears old points\nconst series = [\"PUMP-01\", \"PUMP-02\", \"PUMP-03\", \"Warning limit\", \"Critical limit\"];\nconst empty = () => ({ payload: [{ series, data: series.map(() => []), labels: [\"\"] }] });\nreturn [empty(), empty(), empty()];\n",
+    "outputs": 3,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "",
+    "x": 400,
+    "y": 400,
+    "wires": [
+      [
+        "ch_risk"
+      ],
+      [
+        "ch_temp"
+      ],
+      [
+        "ch_vib"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "c3",
+    "type": "comment",
+    "name": "3. Status + Last Will (retained, QoS 1): ONLINE / OFFLINE per pump",
+    "info": "",
+    "x": 170,
+    "y": 500,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "in_status",
+    "type": "mqtt in",
+    "name": "status + LWT",
+    "topic": "factory/site01/machine/+/status",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 170,
+    "y": 560,
+    "wires": [
+      [
+        "status"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "status",
+    "type": "function",
+    "name": "Connectivity handler",
+    "func": "// [3] Status / LWT handler (retained, QoS 1)\nlet d;\ntry { d = typeof msg.payload === \"string\" ? JSON.parse(msg.payload) : msg.payload; } catch (e) { return null; }\nif (!d || !d.machine_id) return null;\nconst fleet = flow.get(\"fleet\") || {};\nconst m = fleet[d.machine_id] || { ema: {}, win: [], state: \"NORMAL\", pending: null, pendingN: 0, n: 0, lastSeq: -1 };\nconst offline = String(d.connectivity).toUpperCase() === \"OFFLINE\" || String(d.machine_status).toUpperCase() === \"OFFLINE\";\nconst before = m.connectivity;\nm.connectivity = offline ? \"OFFLINE\" : \"ONLINE\";\nm.reason = d.reason || \"\";\nm.status_at = d.updated_at || new Date().toISOString();   // LWT has no updated_at -> receipt time\nm.asset_name = d.asset_name || m.asset_name;\nm.location = d.location || m.location;\nfleet[d.machine_id] = m; flow.set(\"fleet\", fleet);\nif (before === m.connectivity) return null;               // retained duplicates: nothing new\nif (before === undefined && !offline) return null;          // first retained ONLINE at startup: not an event\nconst unexpected = m.reason === \"unexpected_disconnect_lwt\";\nconst text = offline ? (unexpected ? \"Connection lost (broker Last Will)\" : \"Stopped gracefully\") : \"Back online\";\nconst log = flow.get(\"alertlog\") || [];\nlog.unshift({ time: m.status_at, machine_id: d.machine_id, text, sev: offline ? \"OFFLINE\" : \"ONLINE\" });\nflow.set(\"alertlog\", log.slice(0, 15));\n// The Kafka bridge already writes the CONNECTIVITY alert for an LWT, so we only notify the operator here.\nif (!offline && before === undefined) return null;          // first retained ONLINE at startup: no toast\nreturn { topic: `${d.machine_id}: ${offline ? \"OFFLINE\" : \"ONLINE\"}`, payload: text };\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "",
+    "x": 410,
+    "y": 560,
+    "wires": [
+      [
+        "toast"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "c4",
+    "type": "comment",
+    "name": "4. Fleet dashboard (1 s refresh, ranked by priority) + closed-loop maintenance",
+    "info": "",
+    "x": 170,
+    "y": 620,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "tick",
+    "type": "inject",
+    "name": "every 1 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "1",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "1",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 680,
+    "wires": [
+      [
+        "snapshot"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "snapshot",
+    "type": "function",
+    "name": "Fleet snapshot + priority",
+    "func": "// [4] Fleet snapshot every second\n// Outputs: 1 status panel, 2 event log, 3-5 limit lines for the risk / temperature / vibration charts\nconst fleet = flow.get(\"fleet\") || {};\nconst now = Date.now();\nconst RANK = { OFFLINE: 4, CRITICAL: 3, WARNING: 2, RECOVERING: 1, NORMAL: 0 };\nconst ids = [\"PUMP-01\", \"PUMP-02\", \"PUMP-03\"];\nfor (const k of Object.keys(fleet)) if (!ids.includes(k)) ids.push(k);\nconst rows = ids.map(id => {\n    const m = fleet[id] || {}, L = m.last || {};\n    let state = m.state || \"NORMAL\";\n    if (m.connectivity === \"OFFLINE\") state = \"OFFLINE\";\n    const stale = L.seen ? (now - L.seen) > 5000 : true;\n    return { id, state, stale: stale && state !== \"OFFLINE\", risk: L.risk ?? null, health: L.health ?? null,\n        cause: L.cause || \"NONE\", cause_label: L.cause_label || \"Waiting for data\", action: L.action || \"\", dominant: L.dominant || \"\",\n        ttc: L.ttc ? L.ttc.label : \"Unknown\", ttc_s: L.ttc && L.ttc.value_s !== null ? L.ttc.value_s : Infinity,\n        raw: L.raw || {}, regions: L.regions || {}, machine_status: L.machine_status || \"\", reason: m.reason || \"\" };\n});\nrows.sort((a, b) => (RANK[b.state] - RANK[a.state]) || ((b.risk || 0) - (a.risk || 0)) || (a.ttc_s - b.ttc_s));\nrows.forEach((x, i) => { x.priority = i + 1; if (x.ttc_s === Infinity) x.ttc_s = null; });\nconst online = rows.filter(x => x.state !== \"OFFLINE\").length;\nconst withHealth = rows.filter(x => x.health !== null && x.state !== \"OFFLINE\");\nconst avgHealth = withHealth.length ? Math.round(withHealth.reduce((a, x) => a + x.health, 0) / withHealth.length) : null;\nconst status = { payload: { rows, online, total: rows.length, avgHealth, updated: new Date().toISOString(),\n    kpi: flow.get(\"kpi\") || { accepted: 0, avoided_eur: 0 } } };\nconst events = { payload: { alerts: (flow.get(\"alertlog\") || []).slice(0, 12), quarantine: (flow.get(\"quarantine\") || []).slice(0, 4) } };\nconst lim = (w, c) => [{ topic: \"Warning limit\", payload: w }, { topic: \"Critical limit\", payload: c }];\nreturn [status, events, lim(31, 61), lim(70, 80), lim(3, 6)];\n",
+    "outputs": 5,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "",
+    "x": 360,
+    "y": 680,
+    "wires": [
+      [
+        "fleetui"
+      ],
+      [
+        "eventsui"
+      ],
+      [
+        "ch_risk"
+      ],
+      [
+        "ch_temp"
+      ],
+      [
+        "ch_vib"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "fleetui",
+    "type": "ui_template",
+    "group": "g_fleet",
+    "name": "Fleet status panel",
+    "order": 1,
+    "width": 18,
+    "height": "12",
+    "format": "<style>\n.fx{--ok:#1e9e63;--warn:#d98b00;--crit:#d63c3c;--off:#7b8790;--rec:#2b7bd6;--ink:#1d2a31;--mute:#66757e;--line:#e2e7ea;--soft:#f4f6f7;\n  color:var(--ink);font-size:14px;line-height:1.4}\n.fx .hd{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:8px;padding:2px 2px 12px;border-bottom:1px solid var(--line)}\n.fx .hd h2{margin:0;font-size:20px;font-weight:600}\n.fx .hd small{color:var(--mute);font-size:13px}\n.fx .live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;vertical-align:middle}\n.fx .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:12px 0}\n.fx .kpi{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fff}\n.fx .kpi b{display:block;font-size:24px;font-weight:600;line-height:1.1}\n.fx .kpi span{color:var(--mute);font-size:12px}\n.fx .kpi.crit.on b{color:var(--crit)}.fx .kpi.warn.on b{color:var(--warn)}.fx .kpi.off.on b{color:var(--off)}\n.fx .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}\n.fx .card{border:1px solid var(--line);border-top:4px solid var(--ok);border-radius:8px;padding:12px 14px;background:#fff}\n.fx .card.WARNING{border-top-color:var(--warn)}.fx .card.CRITICAL{border-top-color:var(--crit)}\n.fx .card.OFFLINE{border-top-color:var(--off);background:var(--soft)}.fx .card.RECOVERING{border-top-color:var(--rec)}\n.fx .top{display:flex;justify-content:space-between;align-items:center}\n.fx .id{font-size:17px;font-weight:600}\n.fx .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}\n.fx .pill{font-size:11px;font-weight:700;letter-spacing:.04em;padding:3px 9px;border-radius:999px;color:#fff;background:var(--ok)}\n.fx .pill.WARNING{background:var(--warn)}.fx .pill.CRITICAL{background:var(--crit)}.fx .pill.OFFLINE{background:var(--off)}.fx .pill.RECOVERING{background:var(--rec)}\n.fx .sub{color:var(--mute);font-size:12px;margin-top:2px}\n.fx .gauge{display:flex;align-items:center;gap:10px;margin:10px 0 6px}\n.fx .gauge .bar{flex:1;height:8px;background:var(--soft);border-radius:4px;overflow:hidden}\n.fx .gauge .bar i{display:block;height:100%;border-radius:4px}\n.fx .gauge b{font-size:18px;min-width:44px;text-align:right}\n.fx dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:6px 0 10px}\n.fx dt{color:var(--mute)}.fx dd{margin:0;text-align:right;font-weight:500}\n.fx .sig{display:grid;grid-template-columns:1fr 1fr;gap:6px}\n.fx .sig div{background:var(--soft);border-radius:6px;padding:6px 8px;border-left:3px solid var(--ok)}\n.fx .sig div.r1{border-left-color:var(--warn)}.fx .sig div.r2{border-left-color:var(--crit);background:#fdeeee}\n.fx .sig span{display:block;color:var(--mute);font-size:11px}\n.fx .sig b{font-size:15px;font-weight:600}\n.fx .act{margin:10px 0 0;padding:8px 10px;border-radius:6px;background:#fff6e5;color:#6b4a00;font-size:13px}\n.fx .act.CRITICAL{background:#fdeeee;color:#7a1f1f}\n.fx .note{margin-top:8px;color:var(--mute);font-size:12px}\n.fx button.acc{width:100%;margin-top:10px;padding:9px;border:0;border-radius:6px;background:#1f5fae;color:#fff;font-weight:600;font-size:14px;cursor:pointer}\n.fx button.acc:hover{background:#174b8a}\n.fx button.acc:disabled{background:#e6eaed;color:#9aa6ad;cursor:default}\n@media (max-width:900px){.fx .kpis{grid-template-columns:repeat(3,1fr)}.fx .cards{grid-template-columns:1fr}}\n\n/* PumpGuard hybrid theme: white canvas and KPI tiles, dark pump cards */\n.fx{--ok:#28b889;--warn:#e5a632;--crit:#e45664;--off:#8b98a9;--rec:#4e9ce6;--ink:#182d40;--mute:#718196;--line:#dce4ec;--soft:#eff4f8;color:#182d40}\n.fx .hd{border-bottom:1px solid #dce4ec;padding-bottom:13px}\n.fx .hd h2{font-size:23px;font-weight:750;color:#10263a}\n.fx .live{background:#26bd88;box-shadow:0 0 0 4px #d9f6ea}\n.fx .kpis{grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:16px 0}\n.fx .kpi{background:#fff;border:1px solid #e0e7ee;border-radius:10px;box-shadow:0 2px 7px rgba(16,39,65,.05);padding:15px 12px}\n.fx .kpi b{font-size:26px;color:#1b2d40}\n.fx .kpi.crit b,.fx .kpi.crit.on b{color:#df5260}\n.fx .kpi.warn b,.fx .kpi.warn.on b{color:#d79a23}\n.fx .kpi.off b,.fx .kpi.off.on b{color:#718196}\n.fx .cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}\n.fx .card{background:#142136;color:#edf5ff;border:1px solid #2a4159;border-top:4px solid #2ac295;border-radius:12px;box-shadow:0 5px 14px rgba(22,41,62,.10);padding:16px}\n.fx .card.WARNING{border-top-color:#e7aa36}.fx .card.CRITICAL{border-top-color:#e45a68}\n.fx .card.OFFLINE{border-top-color:#8294a7;background:#263448}.fx .card.RECOVERING{border-top-color:#4e9ce6}\n.fx .id{color:#fff;font-size:18px}.fx .sub,.fx dt,.fx .note{color:#aabdd0}\n.fx dd{color:#f1f6fb}.fx .gauge .bar{background:#34475d}.fx .gauge b{color:#fff}\n.fx .sig div{background:#20364d;border-left-color:#2ac295}\n.fx .sig div.r1{border-left-color:#e7aa36;background:#3a3540}\n.fx .sig div.r2{border-left-color:#e45a68;background:#4b2b3c}\n.fx .sig span{color:#9eb7ce}.fx .sig b{color:#fff}\n.fx .act{background:#453c32;color:#ffdb9d}.fx .act.CRITICAL{background:#4b2b3c;color:#ffc2cb}\n.fx button.acc{background:#2378c7}.fx button.acc:disabled{background:#34465a;color:#9dafc1}\n@media(max-width:1050px){.fx .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}\n@media(max-width:700px){.fx .cards{grid-template-columns:1fr}}\n@media(max-width:550px){.fx .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}\n</style>\n<div class=\"fx\" ng-if=\"msg.payload\">\n  <div class=\"hd\">\n    <div><h2>Fleet health overview</h2><small>PUMPGUARD / SITE 01 &middot; Live risk and maintenance intelligence</small></div>\n    <small><span class=\"live\"></span>LIVE MONITORING &middot; {{msg.payload.online}}/{{msg.payload.total}} online &middot; updated {{msg.payload.updated | date:'HH:mm:ss'}}</small>\n  </div>\n  <div class=\"kpis\">\n    <div class=\"kpi\"><b>{{msg.payload.avgHealth===null?'-':msg.payload.avgHealth}}</b><span>Avg fleet health /100</span></div>\n    <div class=\"kpi crit\" ng-class=\"{on:(msg.payload.rows | filter:{state:'CRITICAL'}:true).length>0}\"><b>{{(msg.payload.rows | filter:{state:'CRITICAL'}:true).length}}</b><span>Critical</span></div>\n    <div class=\"kpi warn\" ng-class=\"{on:(msg.payload.rows | filter:{state:'WARNING'}:true).length>0}\"><b>{{(msg.payload.rows | filter:{state:'WARNING'}:true).length}}</b><span>Warning</span></div>\n    <div class=\"kpi off\" ng-class=\"{on:msg.payload.total - msg.payload.online>0}\"><b>{{msg.payload.total - msg.payload.online}}</b><span>Offline</span></div>\n    <div class=\"kpi\"><b>{{msg.payload.kpi.accepted}}</b><span>Maintenance actions accepted</span></div>\n    <div class=\"kpi\"><b>&euro;{{msg.payload.kpi.avoided_eur | number:0}}</b><span>Avoided cost (estimated)</span></div>\n  </div>\n  <div class=\"cards\">\n    <div class=\"card {{r.state}}\" ng-repeat=\"r in msg.payload.rows track by r.id\">\n      <div class=\"top\">\n        <span class=\"id\"><span class=\"dot\" ng-style=\"{background: {'PUMP-01':'#3366cc','PUMP-02':'#7a52c7','PUMP-03':'#1a9c9c'}[r.id] || '#999'}\"></span>{{r.id}}</span>\n        <span class=\"pill {{r.state}}\">{{r.state}}</span>\n      </div>\n      <div class=\"sub\"><span ng-if=\"r.state!=='NORMAL' && r.state!=='RECOVERING'\">Priority #{{r.priority}}</span><span ng-if=\"r.state==='NORMAL'\">Operating normally</span><span ng-if=\"r.state==='RECOVERING'\">Maintenance in progress</span></div>\n      <div class=\"gauge\">\n        <div class=\"bar\"><i ng-style=\"{width:(r.state==='OFFLINE'?0:(r.health||0))+'%', background: r.state==='CRITICAL'?'#d63c3c':(r.state==='WARNING'?'#d98b00':(r.state==='RECOVERING'?'#2b7bd6':'#1e9e63'))}\"></i></div>\n        <b>{{r.state==='OFFLINE'||r.health===null?'-':r.health}}</b>\n      </div>\n      <dl>\n        <dt>Risk score</dt><dd>{{r.risk===null?'-':r.risk}}</dd>\n        <dt>Time to critical</dt><dd>{{r.ttc}}</dd>\n        <dt>Likely fault</dt><dd>{{r.cause_label}}</dd>\n        <dt>Key signal</dt><dd>{{ r.risk>0 ? ({temperature_c:'Temperature',vibration_rms:'Vibration',current_a:'Current',rpm:'Speed'}[r.dominant] || '-') : '-' }}</dd>\n      </dl>\n      <div class=\"sig\">\n        <div class=\"r{{r.regions.temperature_c}}\"><span>Temperature</span><b>{{r.raw.temperature_c | number:1}} &deg;C</b></div>\n        <div class=\"r{{r.regions.vibration_rms}}\"><span>Vibration RMS</span><b>{{r.raw.vibration_rms | number:2}} mm/s</b></div>\n        <div class=\"r{{r.regions.current_a}}\"><span>Current</span><b>{{r.raw.current_a | number:1}} A</b></div>\n        <div class=\"r{{r.regions.rpm}}\"><span>Speed</span><b>{{r.raw.rpm | number:0}} rpm</b></div>\n      </div>\n      <div class=\"act {{r.state}}\" ng-if=\"r.state==='WARNING'||r.state==='CRITICAL'\"><b>Recommended:</b> {{r.action}}</div>\n      <div class=\"note\" ng-if=\"r.stale\">No telemetry received for more than 5 s</div>\n      <div class=\"note\" ng-if=\"r.state==='OFFLINE'\">{{r.reason==='unexpected_disconnect_lwt'?'Connection lost (broker Last Will)':'Stopped gracefully'}}</div>\n      <button class=\"acc\" ng-if=\"r.state==='WARNING'||r.state==='CRITICAL'\" ng-click=\"send({payload:{machine_id:r.id}})\">Accept maintenance</button>\n      <div class=\"note\" ng-if=\"r.state==='NORMAL'\">No maintenance needed</div>\n    </div>\n  </div>\n</div>\n",
+    "storeOutMessages": false,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 570,
+    "y": 680,
+    "wires": [
+      [
+        "accept"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "accept",
+    "type": "function",
+    "name": "Accept maintenance",
+    "func": "// [5] Operator accepts maintenance -> command to the pump + action event to Kafka\n// Estimated KPI: unplanned failure (~12,000 EUR) minus planned maintenance (~2,000 EUR)\nconst AVOIDED_PER_ACTION = 10000;\nconst id = msg.payload && msg.payload.machine_id;\nif (!id) return null;\nconst fleet = flow.get(\"fleet\") || {};\nconst m = fleet[id] || {}, L = m.last || {};\nconst now = Date.now();\nif (m.lastAccept && now - m.lastAccept < 15000) { node.warn(`${id}: duplicate click ignored`); return null; }   // idempotent UI\nm.lastAccept = now; fleet[id] = m; flow.set(\"fleet\", fleet);\nconst ts = new Date(now).toISOString();\nconst action_id = `ACT-${id}-${now}`;\nconst counts = m.state === \"WARNING\" || m.state === \"CRITICAL\";\nconst kpi = flow.get(\"kpi\") || { accepted: 0, avoided_eur: 0 };\nkpi.accepted++; if (counts) kpi.avoided_eur += AVOIDED_PER_ACTION; flow.set(\"kpi\", kpi);\nconst log = flow.get(\"alertlog\") || [];\nlog.unshift({ time: ts, machine_id: id, text: `Maintenance accepted by operator (${action_id})`, sev: \"ACTION\" });\nflow.set(\"alertlog\", log.slice(0, 15));\nconst base = `factory/site01/machine/${id}`;\nreturn [\n    { topic: `${base}/command`, payload: { command: \"accept_maintenance\", action_id, requested_by: \"nodered-dashboard\", timestamp: ts } },\n    { topic: `${base}/actions`, payload: { machine_id: id, timestamp: ts, action_type: \"ACCEPTED\", action_id, state_at_acceptance: m.state || \"UNKNOWN\",\n        risk_score: L.risk ?? null, likely_fault: L.cause || \"NONE\", recommended_action: L.action || \"\", estimated_avoided_cost_eur: counts ? AVOIDED_PER_ACTION : 0,\n        kpi_note: \"ESTIMATED\" } }\n];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "Output 1: command to the pump (QoS 1). Output 2: ACCEPTED action event → maintenance.actions in Kafka.",
+    "x": 760,
+    "y": 680,
+    "wires": [
+      [
+        "mqtt_derived2"
+      ],
+      [
+        "mqtt_derived2"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "mqtt_derived2",
+    "type": "mqtt out",
+    "name": "command + action (QoS 1)",
+    "topic": "",
+    "qos": "1",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "broker",
+    "x": 990,
+    "y": 680,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "eventsui",
+    "type": "ui_template",
+    "group": "g_events",
+    "name": "Event log",
+    "order": 1,
+    "width": "24",
+    "height": "9",
+    "format": "<style>\n.ev{--ok:#1e9e63;--warn:#d98b00;--crit:#d63c3c;--off:#7b8790;--rec:#2b7bd6;--ink:#1d2a31;--mute:#66757e;--line:#e2e7ea;color:var(--ink);font-size:13px}\n.ev table{width:100%;border-collapse:collapse}\n.ev th{text-align:left;color:var(--mute);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}\n.ev td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}\n.ev td.t{color:var(--mute);white-space:nowrap;font-variant-numeric:tabular-nums}\n.ev .s{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;color:#fff;background:var(--ok)}\n.ev .s.WARNING{background:var(--warn)}.ev .s.CRITICAL{background:var(--crit)}.ev .s.OFFLINE{background:var(--off)}.ev .s.RECOVERING,.ev .s.ACTION{background:var(--rec)}\n.ev .empty{color:var(--mute);padding:14px 8px}\n.ev h4{margin:14px 0 4px;font-size:13px;color:var(--crit)}\n</style>\n<div class=\"ev\">\n  <table>\n    <tr><th>Time</th><th>Pump</th><th>Event</th></tr>\n    <tr ng-repeat=\"a in msg.payload.alerts\">\n      <td class=\"t\">{{a.time | date:'HH:mm:ss'}}</td><td>{{a.machine_id}}</td>\n      <td><span ng-if=\"a.from\"><span class=\"s {{a.from}}\">{{a.from}}</span> &rarr; <span class=\"s {{a.to}}\">{{a.to}}</span>&nbsp; </span>\n          <span ng-if=\"!a.from\" class=\"s {{a.sev}}\">{{a.sev}}</span>&nbsp; {{a.text}}</td>\n    </tr>\n    <tr ng-if=\"!msg.payload.alerts.length\"><td colspan=\"3\" class=\"empty\">No events yet. Inject a fault from the control panel.</td></tr>\n  </table>\n  <div ng-if=\"msg.payload.quarantine.length\">\n    <h4>Quarantined payloads (rejected, not processed)</h4>\n    <table><tr ng-repeat=\"q in msg.payload.quarantine\"><td class=\"t\">{{q.received_at | date:'HH:mm:ss'}}</td><td>{{q.machine_id||'unknown'}}</td><td>{{q.errors.join('; ')}}</td></tr></table>\n  </div>\n</div>\n",
+    "storeOutMessages": false,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 570,
+    "y": 730,
+    "wires": [
+      []
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "themeui",
+    "type": "ui_template",
+    "group": "",
+    "name": "Global style (white theme)",
+    "order": 0,
+    "width": 0,
+    "height": 0,
+    "format": "<style>\nbody,.nr-dashboard-theme md-content,md-content,.nr-dashboard-theme{background:#f5f7fa !important;color:#192e42!important}\n.nr-dashboard-theme md-toolbar,md-toolbar{background:#1185ac!important;color:white!important}\n.nr-dashboard-cardpanel{background:#fff!important;border:1px solid #dfe7ef!important;border-radius:12px!important;box-shadow:0 2px 8px rgba(18,42,68,.05)!important}\n.nr-dashboard-cardpanel p.nr-dashboard-cardtitle,.nr-dashboard-cardtitle{color:#17314a!important;font-size:16px!important;font-weight:700!important}\n.nr-dashboard-chart-title{color:#17314a!important;font-weight:700!important}\n.nr-dashboard-button .md-button{border-radius:7px!important;text-transform:none!important;font-weight:700!important}\n.nr-dashboard-theme md-select .md-select-value{color:#19324a!important}\n</style>",
+    "storeOutMessages": false,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "global",
+    "className": "",
+    "x": 200,
+    "y": 780,
+    "wires": [
+      []
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "c5",
+    "type": "comment",
+    "name": "5. Demo control panel → simulator commands (fault injection, crash/LWT test)",
+    "info": "",
+    "x": 170,
+    "y": 760,
+    "wires": [],
+    "z": "tab_pm"
+  },
+  {
+    "id": "dd_pump",
+    "type": "ui_dropdown",
+    "name": "Pump",
+    "label": "Pump",
+    "tooltip": "",
+    "place": "Select",
+    "group": "g_ctl",
+    "order": 1,
+    "width": 6,
+    "height": "1",
+    "passthru": true,
+    "multiple": false,
+    "options": [
+      {
+        "label": "PUMP-01",
+        "value": "PUMP-01",
+        "type": "str"
+      },
+      {
+        "label": "PUMP-02",
+        "value": "PUMP-02",
+        "type": "str"
+      },
+      {
+        "label": "PUMP-03",
+        "value": "PUMP-03",
+        "type": "str"
+      },
+      {
+        "label": "ALL",
+        "value": "ALL",
+        "type": "str"
+      }
+    ],
+    "payload": "",
+    "topic": "",
+    "topicType": "str",
+    "className": "",
+    "x": 170,
+    "y": 820,
+    "wires": [
+      [
+        "dd_pump_set"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "dd_pump_set",
+    "type": "change",
+    "name": "flow.ctl_pump",
+    "rules": [
+      {
+        "t": "set",
+        "p": "ctl_pump",
+        "pt": "flow",
+        "to": "payload",
+        "tot": "msg"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "to": "",
+    "reg": false,
+    "x": 380,
+    "y": 820,
+    "wires": [
+      []
+    ],
+    "z": "tab_pm",
+    "from": ""
+  },
+  {
+    "id": "dd_scen",
+    "type": "ui_dropdown",
+    "name": "Scenario",
+    "label": "Scenario",
+    "tooltip": "",
+    "place": "Select",
+    "group": "g_ctl",
+    "order": 2,
+    "width": 6,
+    "height": "1",
+    "passthru": true,
+    "multiple": false,
+    "options": [
+      {
+        "label": "BEARING_WEAR",
+        "value": "BEARING_WEAR",
+        "type": "str"
+      },
+      {
+        "label": "OVERHEATING",
+        "value": "OVERHEATING",
+        "type": "str"
+      },
+      {
+        "label": "OVERLOAD",
+        "value": "OVERLOAD",
+        "type": "str"
+      },
+      {
+        "label": "COMBINED_FAILURE",
+        "value": "COMBINED_FAILURE",
+        "type": "str"
+      },
+      {
+        "label": "NORMAL",
+        "value": "NORMAL",
+        "type": "str"
+      }
+    ],
+    "payload": "",
+    "topic": "",
+    "topicType": "str",
+    "className": "",
+    "x": 170,
+    "y": 860,
+    "wires": [
+      [
+        "dd_scen_set"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "dd_scen_set",
+    "type": "change",
+    "name": "flow.ctl_scenario",
+    "rules": [
+      {
+        "t": "set",
+        "p": "ctl_scenario",
+        "pt": "flow",
+        "to": "payload",
+        "tot": "msg"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "to": "",
+    "reg": false,
+    "x": 380,
+    "y": 860,
+    "wires": [
+      []
+    ],
+    "z": "tab_pm",
+    "from": ""
+  },
+  {
+    "id": "b_apply",
+    "type": "ui_button",
+    "name": "Inject fault",
+    "group": "g_ctl",
+    "order": 3,
+    "width": 3,
+    "height": "1",
+    "passthru": false,
+    "label": "APPLY SCENARIO",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "#2378c7",
+    "className": "",
+    "icon": "",
+    "payload": "",
+    "payloadType": "str",
+    "topic": "scenario",
+    "topicType": "str",
+    "x": 170,
+    "y": 920,
+    "wires": [
+      [
+        "control"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "b_normal",
+    "type": "ui_button",
+    "name": "Back to normal",
+    "group": "g_ctl",
+    "order": 4,
+    "width": 3,
+    "height": "1",
+    "passthru": false,
+    "label": "SET NORMAL",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "#269668",
+    "className": "",
+    "icon": "",
+    "payload": "",
+    "payloadType": "str",
+    "topic": "normal",
+    "topicType": "str",
+    "x": 170,
+    "y": 960,
+    "wires": [
+      [
+        "control"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "b_crash",
+    "type": "ui_button",
+    "name": "Simulate crash",
+    "group": "g_ctl",
+    "order": 5,
+    "width": 3,
+    "height": "1",
+    "passthru": false,
+    "label": "CRASH (LWT)",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "#cb444b",
+    "className": "",
+    "icon": "",
+    "payload": "",
+    "payloadType": "str",
+    "topic": "crash",
+    "topicType": "str",
+    "x": 170,
+    "y": 1000,
+    "wires": [
+      [
+        "control"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "b_rec",
+    "type": "ui_button",
+    "name": "Reconnect",
+    "group": "g_ctl",
+    "order": 6,
+    "width": 3,
+    "height": "1",
+    "passthru": false,
+    "label": "RECONNECT",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "#687785",
+    "className": "",
+    "icon": "",
+    "payload": "",
+    "payloadType": "str",
+    "topic": "reconnect",
+    "topicType": "str",
+    "x": 170,
+    "y": 1040,
+    "wires": [
+      [
+        "control"
+      ]
+    ],
+    "z": "tab_pm"
+  },
+  {
+    "id": "control",
+    "type": "function",
+    "name": "Build command",
+    "func": "// [6] Demo control panel -> simulator commands\nconst pump = flow.get(\"ctl_pump\") || \"PUMP-03\";\nconst scenario = flow.get(\"ctl_scenario\") || \"BEARING_WEAR\";\nconst target = pump === \"ALL\" ? \"all\" : pump;\nconst topic = `factory/site01/machine/${target}/command`;\nconst ts = new Date().toISOString();\nswitch (msg.topic) {\n    case \"scenario\":  return { topic, payload: { command: \"set_scenario\", scenario, timestamp: ts } };\n    case \"crash\":     return pump === \"ALL\" ? null : { topic, payload: { command: \"simulate_crash\", timestamp: ts } };\n    case \"reconnect\": return pump === \"ALL\" ? null : { topic, payload: { command: \"reconnect\", timestamp: ts } };\n    case \"normal\":    return { topic, payload: { command: \"set_scenario\", scenario: \"NORMAL\", timestamp: ts } };\n}\nreturn null;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "info": "",
+    "x": 400,
+    "y": 980,
+    "wires": [
+      [
+        "mqtt_derived2"
+      ]
+    ],
+    "z": "tab_pm"
+  }
+]

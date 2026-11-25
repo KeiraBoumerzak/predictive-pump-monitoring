@@ -1,0 +1,44 @@
+# Member 2 local streaming stack: single-broker Kafka (KRaft, no ZooKeeper) + Mosquitto.
+#
+# Single broker, replication-factor 1: minimizes memory on a lab workstation
+# while keeping disk-backed log durability and offset replay (README 2.3).
+# For the fault-tolerant profile, scale to 2-3 brokers and set
+# KAFKA_REPLICATION_FACTOR=2/3 with min.insync.replicas >= 2.
+#
+# Usage (from repo root):
+#   docker compose -f kafka_streaming/docker-compose.yml up -d
+#   docker compose -f kafka_streaming/docker-compose.yml down -v   # stop + wipe data
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: ppm-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ../simulator/mosquitto:/mosquitto/config:ro
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: ppm-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      CLUSTER_ID: ppm-kafka-cluster-0001
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"   # topics are provisioned explicitly
+      KAFKA_LOG_RETENTION_HOURS: "168"           # keep a week of history for replay demos
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+volumes:
+  kafka-data:
